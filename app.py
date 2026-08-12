@@ -2,7 +2,10 @@ import streamlit as st
 
 from src.llm_client import ask_model, check_ollama_connection
 from src.pdf_loader import extract_pdf_pages
-
+from src.text_splitter import split_pages_into_chunks
+from src.embeddings import create_embedding
+from src.vector_store import store_chunks
+from src.rag_pipeline import retrieve_context
 
 st.set_page_config(
     page_title="UniMind AI",
@@ -43,7 +46,27 @@ if "document_name" not in st.session_state:
 if uploaded_file is not None:
     if st.session_state.document_name != uploaded_file.name:
         try:
-            pages = extract_pdf_pages(uploaded_file.getvalue())
+            pages = extract_pdf_pages(
+                uploaded_file.getvalue()
+            )
+
+            chunks = split_pages_into_chunks(pages)
+
+            embeddings = []
+
+            for chunk in chunks:
+                embedding = create_embedding(
+                    chunk["text"]
+                )
+
+                embeddings.append(embedding)
+
+            store_chunks(
+                chunks=chunks,
+                embeddings=embeddings,
+                document_name=uploaded_file.name,
+            )
+            
             st.session_state.document_pages = pages
             st.session_state.document_name = uploaded_file.name
             st.session_state.messages = []
@@ -81,12 +104,51 @@ if question:
     with st.chat_message("assistant"):
         with st.spinner("Reading the document and preparing an answer..."):
             try:
-                answer = ask_model(
-                    model=model_name,
-                    question=question,
-                    pages=st.session_state.document_pages,
+                retrieved_chunks = retrieve_context(
+                    question,
+                    n_results=4
                 )
+
+                if not retrieved_chunks:
+                    answer = (
+                        "I couldn't find enough relevant information "
+                        "in the uploaded document to answer this question."
+                    )
+                else:
+                    answer = ask_model(
+                        model=model_name,
+                        question=question,
+                        retrieved_chunks=retrieved_chunks,
+                    )
                 st.markdown(answer)
+                if retrieved_chunks:
+                    st.markdown("### Sources")
+
+                    seen_sources = set()
+
+                    for chunk in retrieved_chunks:
+                        source = (
+                            chunk["document_name"],
+                            chunk["page_number"]
+                        )
+
+                        if source not in seen_sources:
+                            st.markdown(
+                                f"- {chunk['document_name']} "
+                                f"— page {chunk['page_number']}"
+                            )
+
+                            seen_sources.add(source)
+                #Temporary debugging-----------------------------------------------     
+                if retrieved_chunks:
+                    st.markdown("### Retrieval Debug")
+
+                    for chunk in retrieved_chunks:
+                        st.write(
+                            f"Page {chunk['page_number']} "
+                            f"| Distance: {chunk['distance']:.4f}"
+                        )
+            #----------------------------------------------------------------
             except Exception as error:
                 answer = (
                     "I could not contact the local model. Make sure Ollama is running "
