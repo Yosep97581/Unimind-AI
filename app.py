@@ -4,8 +4,17 @@ from src.llm_client import ask_model, check_ollama_connection
 from src.pdf_loader import extract_pdf_pages
 from src.text_splitter import split_pages_into_chunks
 from src.embeddings import create_embedding
-from src.vector_store import store_chunks
+from src.vector_store import (
+    store_chunks,
+    delete_document,
+)
 from src.rag_pipeline import retrieve_context
+from src.document_store import (
+    load_documents,
+    add_document,
+    remove_document,
+)
+
 
 st.set_page_config(
     page_title="UniMind AI",
@@ -13,78 +22,152 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# -------------------------------------------------
+# SESSION STATE INITIALISATION
+# -------------------------------------------------
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "documents" not in st.session_state:
+    saved_documents = load_documents()
+
+    st.session_state.documents = {
+        name: {}
+        for name in saved_documents
+    }
+
+
+# -------------------------------------------------
+# PAGE HEADER
+# -------------------------------------------------
+
 st.title("📚 UniMind AI")
-st.caption("A local AI study assistant for asking questions about university PDFs.")
+st.caption(
+    "A local AI study assistant for asking questions about university PDFs."
+)
+
+
+# -------------------------------------------------
+# SIDEBAR
+# -------------------------------------------------
 
 with st.sidebar:
     st.header("Document")
-    uploaded_file = st.file_uploader(
-        "Upload one PDF",
+
+    uploaded_files = st.file_uploader(
+        "Upload PDFs",
         type=["pdf"],
-        help="The starter version supports one text-based PDF at a time.",
+        accept_multiple_files=True,
+        help="Upload one or more text-based PDF files.",
     )
 
-    st.header("Local model")
-    model_name = st.text_input("Ollama model", value="gemma3:4b")
+    if st.session_state.documents:
+        st.divider()
+        st.subheader("Loaded documents")
 
-    if st.button("Check Ollama connection", use_container_width=True):
+        for name in list(st.session_state.documents.keys()):
+            col1, col2 = st.columns([4, 1])
+
+            with col1:
+                st.write(f"📄 {name}")
+
+            with col2:
+                if st.button(
+                    "🗑️",
+                    key=f"delete-{name}"
+                ):
+                    delete_document(name)
+                    remove_document(name)
+
+                    del st.session_state.documents[name]
+
+                    st.rerun()
+
+    st.header("Local model")
+
+    model_name = st.text_input(
+        "Ollama model",
+        value="gemma3:4b"
+    )
+
+    if st.button(
+        "Check Ollama connection",
+        use_container_width=True
+    ):
         ok, message = check_ollama_connection()
+
         if ok:
             st.success(message)
         else:
             st.error(message)
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if uploaded_files:
+    for uploaded_file in uploaded_files:
 
-if "document_pages" not in st.session_state:
-    st.session_state.document_pages = []
-
-if "document_name" not in st.session_state:
-    st.session_state.document_name = None
-
-if uploaded_file is not None:
-    if st.session_state.document_name != uploaded_file.name:
-        try:
-            pages = extract_pdf_pages(
-                uploaded_file.getvalue()
-            )
-
-            chunks = split_pages_into_chunks(pages)
-
-            embeddings = []
-
-            for chunk in chunks:
-                embedding = create_embedding(
-                    chunk["text"]
+        if uploaded_file.name not in st.session_state.documents:
+            try:
+                pages = extract_pdf_pages(
+                    uploaded_file.getvalue()
                 )
 
-                embeddings.append(embedding)
+                chunks = split_pages_into_chunks(pages)
 
-            store_chunks(
-                chunks=chunks,
-                embeddings=embeddings,
-                document_name=uploaded_file.name,
-            )
-            
-            st.session_state.document_pages = pages
-            st.session_state.document_name = uploaded_file.name
-            st.session_state.messages = []
-            st.success(
-                f"Loaded {uploaded_file.name} with {len(pages)} pages containing text."
-            )
-        except ValueError as error:
-            st.error(str(error))
-        except Exception as error:
-            st.error(f"Could not read the PDF: {error}")
+                embeddings = []
 
-if st.session_state.document_name:
+                for chunk in chunks:
+                    embedding = create_embedding(
+                        chunk["text"]
+                    )
+
+                    embeddings.append(embedding)
+
+                store_chunks(
+                    chunks=chunks,
+                    embeddings=embeddings,
+                    document_name=uploaded_file.name,
+                )
+
+                add_document(
+                    uploaded_file.name
+                )
+
+                st.session_state.documents[
+                    uploaded_file.name
+                ] = {
+                    "pages": pages
+                }
+
+                st.success(
+                    f"Processed {uploaded_file.name} "
+                    f"({len(pages)} pages)"
+                )
+
+            except ValueError as error:
+                st.error(
+                    f"{uploaded_file.name}: {error}"
+                )
+
+            except Exception as error:
+                st.error(
+                    f"Could not process "
+                    f"{uploaded_file.name}: {error}"
+                )
+
+if st.session_state.documents:
     st.info(
-        f"Current document: **{st.session_state.document_name}** "
-        f"({len(st.session_state.document_pages)} pages)"
+        f"{len(st.session_state.documents)} "
+        f"document(s) loaded"
     )
+
+    for document_name in st.session_state.documents:
+        st.write(f"- {document_name}")
+
 else:
-    st.warning("Upload a PDF before asking a document question.")
+    st.warning(
+        "Upload at least one PDF before asking a question."
+    )
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -92,7 +175,7 @@ for message in st.session_state.messages:
 
 question = st.chat_input(
     "Ask a question about the uploaded PDF",
-    disabled=not bool(st.session_state.document_pages),
+    disabled=not bool(st.session_state.documents),
 )
 
 if question:

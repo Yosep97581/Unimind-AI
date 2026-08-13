@@ -32,6 +32,7 @@ def store_chunks(chunks, embeddings, document_name):
             {
                 "document_name": document_name,
                 "page_number": chunk["page_number"],
+                "chunk_id": chunk["id"],
             }
         )
 
@@ -50,3 +51,12 @@ def search_chunks(query_embedding, n_results=4):
     )
 
     return results
+
+def delete_document(
+    document_name
+):
+    collection.delete(
+        where={
+            "document_name": document_name
+        }
+    )

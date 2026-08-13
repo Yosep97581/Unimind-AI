@@ -31,21 +31,3 @@ def split_pages_into_chunks(
             start += chunk_size - overlap
 
     return chunks
-
-#Temporary
-
-if __name__ == "__main__":
-    fake_pages = [
-        {
-            "page_number": 1,
-            "text": "A" * 2500
-        }
-    ]
-
-    chunks = split_pages_into_chunks(fake_pages)
-
-    for chunk in chunks:
-        print(chunk["id"])
-        print(chunk["page_number"])
-        print(len(chunk["text"]))
-        print()
