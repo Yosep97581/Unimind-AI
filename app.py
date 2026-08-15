@@ -1,6 +1,6 @@
 import streamlit as st
 
-from src.llm_client import ask_model, check_ollama_connection
+from src.llm_client import check_ollama_connection
 from src.pdf_loader import extract_pdf_pages
 from src.text_splitter import split_pages_into_chunks
 from src.embeddings import create_embedding
@@ -14,7 +14,15 @@ from src.document_store import (
     add_document,
     remove_document,
 )
-
+from src.intent_router import detect_intent
+from src.study_tools import (
+    answer_question,
+    summarise_material,
+    generate_practice_questions,
+    generate_flashcards,
+    compare_material,
+)
+from src.memory import get_recent_history
 
 st.set_page_config(
     page_title="UniMind AI",
@@ -85,6 +93,22 @@ with st.sidebar:
 
                     st.rerun()
 
+    st.divider()
+    st.subheader("Study tools")
+
+    study_mode = st.selectbox(
+        "Mode",
+        [
+            "Auto",
+            "Question Answering",
+            "Summary",
+            "Practice Questions",
+            "Flashcards",
+            "Compare",
+        ]
+    )
+
+    st.divider()
     st.header("Local model")
 
     model_name = st.text_input(
@@ -174,13 +198,15 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 question = st.chat_input(
-    "Ask a question about the uploaded PDF",
+    "Ask about your uploaded study materials",
     disabled=not bool(st.session_state.documents),
 )
 
 if question:
     st.session_state.messages.append({"role": "user", "content": question})
-
+    history = get_recent_history(
+        st.session_state.messages[:-1]
+    )
     with st.chat_message("user"):
         st.markdown(question)
 
@@ -191,18 +217,64 @@ if question:
                     question,
                     n_results=4
                 )
+                
+                if study_mode == "Auto":
+                    intent = detect_intent(question)
+
+                elif study_mode == "Question Answering":
+                    intent = "question"
+
+                elif study_mode == "Summary":
+                    intent = "summary"
+
+                elif study_mode == "Practice Questions":
+                    intent = "practice"
+
+                elif study_mode == "Flashcards":
+                    intent = "flashcards"
+
+                elif study_mode == "Compare":
+                    intent = "compare"
 
                 if not retrieved_chunks:
                     answer = (
                         "I couldn't find enough relevant information "
-                        "in the uploaded document to answer this question."
+                        "in the uploaded materials."
                     )
+
+                elif intent == "summary":
+                    answer = summarise_material(
+                        model_name,
+                        retrieved_chunks
+                    )
+
+                elif intent == "practice":
+                    answer = generate_practice_questions(
+                        model_name,
+                        retrieved_chunks
+                    )
+
+                elif intent == "flashcards":
+                    answer = generate_flashcards(
+                        model_name,
+                        retrieved_chunks
+                    )
+
+                elif intent == "compare":
+                    answer = compare_material(
+                        model_name,
+                        question,
+                        retrieved_chunks
+                    )
+
                 else:
-                    answer = ask_model(
-                        model=model_name,
-                        question=question,
-                        retrieved_chunks=retrieved_chunks,
+                    answer = answer_question(
+                        model_name,
+                        question,
+                        retrieved_chunks,
+                        history=history,
                     )
+
                 st.markdown(answer)
                 if retrieved_chunks:
                     st.markdown("### Sources")
