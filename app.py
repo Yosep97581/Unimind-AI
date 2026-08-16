@@ -127,6 +127,13 @@ with st.sidebar:
         else:
             st.error(message)
 
+if st.sidebar.button(
+    "Clear chat",
+    use_container_width=True
+):
+    st.session_state.messages = []
+    st.rerun()
+
 if uploaded_files:
     for uploaded_file in uploaded_files:
 
@@ -277,33 +284,22 @@ if question:
 
                 st.markdown(answer)
                 if retrieved_chunks:
-                    st.markdown("### Sources")
+                    with st.expander("Sources"):
+                        seen_sources = set()
 
-                    seen_sources = set()
-
-                    for chunk in retrieved_chunks:
-                        source = (
-                            chunk["document_name"],
-                            chunk["page_number"]
-                        )
-
-                        if source not in seen_sources:
-                            st.markdown(
-                                f"- {chunk['document_name']} "
-                                f"— page {chunk['page_number']}"
+                        for chunk in retrieved_chunks:
+                            source = (
+                                chunk["document_name"],
+                                chunk["page_number"]
                             )
 
-                            seen_sources.add(source)
-                #Temporary debugging-----------------------------------------------     
-                if retrieved_chunks:
-                    st.markdown("### Retrieval Debug")
+                            if source not in seen_sources:
+                                st.write(
+                                    f"📄 {chunk['document_name']} "
+                                    f"— page {chunk['page_number']}"
+                                )
 
-                    for chunk in retrieved_chunks:
-                        st.write(
-                            f"Page {chunk['page_number']} "
-                            f"| Distance: {chunk['distance']:.4f}"
-                        )
-            #----------------------------------------------------------------
+                                seen_sources.add(source)
             except Exception as error:
                 answer = (
                     "I could not contact the local model. Make sure Ollama is running "
